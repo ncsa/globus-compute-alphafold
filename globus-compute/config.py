@@ -6,8 +6,8 @@ from globus_compute_endpoint.executors import HighThroughputExecutor
 
 user_opts = {
   'delta': {
-    'worker_init': 'pwd',
-    'scheduler_options': '#SBATCH --account=bbmi-delta-gpu --gpus=1 ',
+    'worker_init': 'bash /u/ritwikd2/worker_init.sh',
+    'scheduler_options': '#SBATCH --account=bbmi-delta-gpu --mem=80g --gpus=2',
   }
 }
 
@@ -21,7 +21,7 @@ config = Config(
       container_type='singularity',
       container_cmd_options="--nv --bind /scratch/bblq/parthpatel7173/alphafold_files/globusComputeTesting/input:/mnt/fasta_path_0 --bind /scratch/bblq/parthpatel7173/alphafold_files/globusComputeTesting/output/:/mnt/output --bind /ime/bblq/park3/data_hyun_official/uniref90:/mnt/uniref90_database_path --bind /ime/bblq/park3/data_hyun_official/mgnify:/mnt/mgnify_database_path --bind /ime/bblq/park3/data_hyun_official:/mnt/data_dir --bind /ime/bblq/park3/data_hyun_official/pdb_mmcif/mmcif_files:/mnt/template_mmcif_dir --bind /ime/bblq/park3/data_hyun_official/pdb_mmcif:/mnt/obsolete_pdbs_path --bind /ime/bblq/park3/data_hyun_official/pdb70:/mnt/pdb70_database_path --bind /ime/bblq/park3/data_hyun_official/uniref30:/mnt/uniref30_database_path --bind /ime/bblq/park3/data_hyun_official/bfd:/mnt/bfd_database_path",
       provider=SlurmProvider(
-        partition='gpuA100x4-interactive',
+        partition='gpuA40x4',
         launcher=SrunLauncher(),
         scheduler_options=user_opts['delta']['scheduler_options'],
         worker_init=user_opts['delta']['worker_init'],
@@ -29,7 +29,7 @@ config = Config(
         init_blocks=0,
         min_blocks=0,
         max_blocks=1,
-        walltime='00:03:00'
+        walltime='00:30:00'
       ),
     )
   ],

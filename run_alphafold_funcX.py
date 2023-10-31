@@ -14,9 +14,8 @@ from absl import flags
 from absl import logging
 from alphafold.common import confidence
 from alphafold.common import protein
-from alphafold.common import residue_constants
 from alphafold.model import config
-from alphafold.relax import relax
+from alphafold.common import residue_constants
 import jax.numpy as jnp
 import numpy as np
 import functools
@@ -139,12 +138,36 @@ flags.DEFINE_boolean('use_dropout', False, 'Global config for mono and multimer.
 
 FLAGS = flags.FLAGS
 
-MAX_TEMPLATE_HITS = 20
-RELAX_MAX_ITERATIONS = 0
-RELAX_ENERGY_TOLERANCE = 2.39
-RELAX_STIFFNESS = 10.0
-RELAX_EXCLUDE_RESIDUES = []
-RELAX_MAX_OUTER_ITERATIONS = 3
+
+
+def run_one_openmm(model_name, relax_metrics, unrelaxed_proteins, timings):
+    import time
+    import datetime
+    from alphafold.relax import relax
+
+    t_0 = time.time()
+
+    amber_relaxer = relax.AmberRelaxation(
+        max_iterations=0,
+        tolerance=2.39,
+        stiffness=10.0,
+        exclude_residues=[],
+        max_outer_iterations=3,
+        use_gpu=False,
+        use_amber=False)
+
+    relaxed_pdb_str, _, violations = amber_relaxer.process(prot=unrelaxed_proteins[model_name])
+    relax_metrics[model_name] = {
+        'remaining_violations': violations,
+        'remaining_violations_count': sum(violations)
+    }
+    end_time = time.time()
+    t_diff = end_time - t_0
+    timings[f'relax_{model_name}'] = t_diff
+    timings[f'relax_{model_name}_start_time'] = datetime.datetime.fromtimestamp(t_0).strftime("%H:%M:%S")
+    timings[f'relax_{model_name}_end_time'] = datetime.datetime.fromtimestamp(end_time).strftime("%H:%M:%S")
+
+    return relaxed_pdb_str, relax_metrics, timings
 
 
 def predict_one_structure(
@@ -234,7 +257,6 @@ def predict_one_structure(
         use_small_bfd=False,
         use_precomputed_msas=use_precomputed_msas)
 
-
     if run_multimer_system:
         data_pipeline = pipeline_multimer.DataPipeline(
             monomer_data_pipeline=monomer_data_pipeline,
@@ -287,11 +309,12 @@ def predict_one_structure(
     t_diff = end_time - t_0
     timings[f'predict_and_compile_{model_name}'] = t_diff
     timings[f'predict_and_compile_{model_name}_start_time'] = datetime.datetime.fromtimestamp(t_0).strftime("%H:%M:%S")
-    timings[f'predict_and_compile_{model_name}_end_time'] = datetime.datetime.fromtimestamp(end_time).strftime("%H:%M:%S")
+    timings[f'predict_and_compile_{model_name}_end_time'] = datetime.datetime.fromtimestamp(end_time).strftime(
+        "%H:%M:%S")
 
     print(f"Total JAX model {model_name}  predict time (includes compilation time, see --benchmark): {t_diff}")
 
-    #Write prediction results
+    # Write prediction results
 
     prediction_result_output_path = os.path.join(output_dir, 'prediction_results.pkl')
     with open(prediction_result_output_path, 'wb') as f:
@@ -400,7 +423,6 @@ def evaluate_results(model_name,
                      unrelaxed_proteins,
                      ranking_confidences,
                      unrelaxed_pdbs):
-
     prediction_result_output_path = os.path.join(output_dir, 'prediction_results.pkl')
     prediction_result = pickle.load(open(prediction_result_output_path, 'rb'))
 
@@ -450,45 +472,13 @@ def collate_dictionary(dic0, dic1):
     return dic0
 
 
-def fetch_files_for_rank(output_dir_base, fasta_name, model_runners):
-    output_dir = os.path.join(output_dir_base, fasta_name)
-    unrelaxed_pdbs = {}
-    # NEED this for: timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences
-
-    timings_output_path = os.path.join(output_dir, 'timings.json')
-    with open(timings_output_path, 'r') as f:
-        timings = json.load(f)
-
-    # for model_name, _ in itertools.islice(model_runners.items(), 1): #do it only once!
-    for model_name, _ in model_runners.items():  # do it only once!
-        result_output_path = os.path.join(output_dir, f'result_{model_name}.pkl')
-        with open(result_output_path, 'rb') as f:
-            np_prediction_result = pickle.load(f)
-        prediction_result = _np_to_jnp(dict(np_prediction_result))
-
-        unrelaxed_pdb_path = os.path.join(output_dir, f'unrelaxed_{model_name}.pdb')
-        with open(unrelaxed_pdb_path, 'r') as f:
-            unrelaxed_pdbs[model_name] = f.read()
-
-    ranking_output_path = os.path.join(output_dir, 'ranking_debug.json')
-    with open(ranking_output_path, 'r') as f:
-        label = 'iptm+ptm' if 'iptm' in prediction_result else 'plddts'
-        ranking_outputs = json.load(f)
-        ranking_confidences = ranking_outputs[label]
-
-    return timings, unrelaxed_pdbs, ranking_confidences, label
-
-
 def predict_structure(
         fasta_path: str,
         fasta_name: str,
         output_dir_base: str,
         run_multimer_system: bool,
         model_names: list,
-        amber_relaxer: relax.AmberRelaxation,
-        benchmark: bool,
-        random_seed: int,
-        models_to_relax: ModelsToRelax):
+        random_seed: int):
     """Predicts structure using AlphaFold for the given sequence."""
     logging.info('Predicting %s', fasta_name)
     timings = {}
@@ -516,7 +506,7 @@ def predict_structure(
 
     num_models = len(model_names)
     with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
-                  container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
+                           container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
         for model_index, model_name in enumerate(model_names):
             print(timings, FLAGS.jackhmmer_binary_path)
             futures.append(ex.submit(predict_one_structure,
@@ -555,8 +545,6 @@ def predict_structure(
                                      msa_output_dir,
                                      timings))
 
-            break
-
     for future in futures:
         timings = future.result()
         outputs.append((timings, *evaluate_results(model_name,
@@ -585,6 +573,80 @@ def predict_structure(
             {label: ranking_confidences}, indent=4))
 
     return timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label
+
+
+def structure_ranker(output_dir_base: str,
+                     fasta_name: str,
+                     models_to_relax: ModelsToRelax,
+                     timings,
+                     unrelaxed_proteins,
+                     unrelaxed_pdbs: dict,
+                     ranking_confidences: dict,
+                     label: str,
+                     use_amber: bool):
+    output_dir = os.path.join(output_dir_base, fasta_name)
+
+    relaxed_pdbs = {}
+    relax_metrics = {}
+    # Rank by model confidence.
+    ranked_order = [
+        model_name for model_name, confidence in
+        sorted(ranking_confidences.items(), key=lambda x: x[1], reverse=True)]
+
+    # Relax predictions.
+    if models_to_relax == ModelsToRelax.BEST:
+        to_relax = [ranked_order[0]]
+    elif models_to_relax == ModelsToRelax.ALL:
+        to_relax = ranked_order
+    else:
+        to_relax = []
+
+    futures = []
+    outputs = []
+    with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
+                           container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
+        for model_name in to_relax:
+            futures.append(ex.submit(run_one_openmm, model_name, relax_metrics, unrelaxed_proteins, timings))
+
+    for future in futures:
+        outputs.append(future.result())
+
+    outputs = list(zip(*outputs))
+    relaxed_pdb_strs = outputs[0]
+    relax_metrics, timings = [functools.reduce(collate_dictionary, out) for out in outputs[1:]]
+
+    for model_name, relaxed_pdb_str in zip(to_relax, relaxed_pdb_strs):
+        relaxed_pdbs[model_name] = relaxed_pdb_str
+        relaxed_output_path = os.path.join(
+            output_dir, f'relaxed_{model_name}.pdb')
+        with open(relaxed_output_path, 'w') as f:
+            f.write(relaxed_pdb_str)
+
+    # Write out relaxed PDBs in rank order.
+    for idx, model_name in enumerate(ranked_order):
+        suffix = "amber" if use_amber else "charmm"
+        ranked_output_path = os.path.join(output_dir, f'ranked_{idx}_{suffix}.pdb')
+        with open(ranked_output_path, 'w') as f:
+            if model_name in relaxed_pdbs:
+                f.write(relaxed_pdbs[model_name])
+            else:
+                f.write(unrelaxed_pdbs[model_name])
+
+    ranking_output_path = os.path.join(output_dir, 'ranking_debug.json')
+    with open(ranking_output_path, 'w') as f:
+        f.write(json.dumps(
+            {label: ranking_confidences, 'order': ranked_order}, indent=4))
+
+    logging.info('Final timings for %s: %s', fasta_name, timings)
+
+    timings_output_path = os.path.join(output_dir, 'timings.json')
+    with open(timings_output_path, 'w') as f:
+        f.write(json.dumps(timings, indent=4))
+    if models_to_relax != ModelsToRelax.NONE:
+        relax_metrics_path = os.path.join(output_dir, 'relax_metrics.json')
+        with open(relax_metrics_path, 'w') as f:
+            f.write(json.dumps(relax_metrics, indent=4))
+
 
 def main(argv):
     logging.info("\n\n Alphafold Prediction Started")
@@ -622,15 +684,6 @@ def main(argv):
 
     model_names = config.MODEL_PRESETS[FLAGS.model_preset]
 
-    amber_relaxer = relax.AmberRelaxation(
-        max_iterations=RELAX_MAX_ITERATIONS,
-        tolerance=RELAX_ENERGY_TOLERANCE,
-        stiffness=RELAX_STIFFNESS,
-        exclude_residues=RELAX_EXCLUDE_RESIDUES,
-        max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS,
-        use_gpu=FLAGS.use_gpu_relax,
-        use_amber=FLAGS.use_amber)
-
     random_seed = FLAGS.random_seed
     if random_seed is None:
         random_seed = random.randrange(sys.maxsize // len(model_names))
@@ -653,11 +706,17 @@ def main(argv):
             output_dir_base=FLAGS.output_dir,
             run_multimer_system=run_multimer_system,
             model_names=model_names,
-            amber_relaxer=amber_relaxer,
-            benchmark=FLAGS.benchmark,
-            random_seed=random_seed,
-            models_to_relax=FLAGS.models_to_relax)
+            random_seed=random_seed)
 
+        structure_ranker(output_dir_base=FLAGS.output_dir,
+                         fasta_name=fasta_name,
+                         models_to_relax=FLAGS.models_to_relax,
+                         timings=timings,
+                         unrelaxed_proteins=unrelaxed_proteins,
+                         unrelaxed_pdbs=unrelaxed_pdbs,
+                         ranking_confidences=ranking_confidences,
+                         label=label,
+                         use_amber=FLAGS.use_amber)
 
         end_time = time.time()
         additional_timings[f'{fasta_name}_prediction_time'] = end_time - t_0
