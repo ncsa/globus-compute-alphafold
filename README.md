@@ -75,7 +75,7 @@ source venv/bin/activate
 
 pip install globus-compute-sdk==2.2.0
 
-pip install absl-py
+pip install git+https://github.com/ritwik-deshpande/alphafold.git
 ```
 
 ```shell
