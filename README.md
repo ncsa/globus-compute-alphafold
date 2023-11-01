@@ -69,16 +69,21 @@ config = Config(
 4. Run Alphafold using the following command:
 
 ```shell
-singularity pull docker://ritwik1998/alphafold-docker-image
+python3.9 -m venv venv
 
-singularity exec \
---nv \
---bind /scratch/bblq/parthpatel7173/alphafold_files/globusComputeTesting/output/:/mnt/output alphafold-docker-image_latest.sif \
+source venv/bin/activate
+
+pip install globus-compute-sdk==2.2.0
+
+pip install git+https://github.com/ritwik-deshpande/alphafold.git
+```
+
+```shell
 python3 run_alphafold.py \
 --fasta_paths=/mnt/fasta_path_0/mchu.fasta \
 --max_template_date=2022-01-01 \
 --data_dir=/mnt/data_dir \
---output_dir=./output \
+--output_dir=<local path where results will be stored> \
 --use_gpu_relax=False \
 --perform_MD_only=True \
 --uniref90_database_path=/mnt/uniref90_database_path/uniref90.fasta \
