@@ -2,25 +2,17 @@ import enum
 import json
 import os
 import pathlib
-import pickle
 import random
 import shutil
 import sys
 import time
-from typing import Any, Dict
-
 from absl import app
 from absl import flags
 from absl import logging
-from alphafold.common import confidence
-from alphafold.common import protein
-from alphafold.model import config
-from alphafold.common import residue_constants
-import jax.numpy as jnp
-import numpy as np
 import functools
 import datetime
-
+from concurrent.futures import as_completed
+from alphafold.model import config
 from globus_compute_sdk import Executor
 
 logging.set_verbosity(logging.INFO)
@@ -139,6 +131,14 @@ flags.DEFINE_boolean('use_dropout', False, 'Global config for mono and multimer.
 FLAGS = flags.FLAGS
 
 
+def _check_flag(flag_name: str,
+                other_flag_name: str,
+                should_be_set: bool):
+    if should_be_set != bool(FLAGS[flag_name].value):
+        verb = 'be' if should_be_set else 'not be'
+        raise ValueError(f'{flag_name} must {verb} set when running with '
+                         f'"--{other_flag_name}={FLAGS[other_flag_name].value}".')
+
 
 def run_one_openmm(model_name, relax_metrics, unrelaxed_proteins, timings):
     import time
@@ -203,21 +203,77 @@ def predict_one_structure(
         model_random_seed,
         run_multimer_system,
         fasta_path,
-        msa_output_dir,
-        timings):
+        timings,
+        ranking_confidences,
+        unrelaxed_pdbs,
+        unrelaxed_proteins):
     import time
     import datetime
     import os
     import pickle
+    import jax.numpy as jnp
+    import numpy as np
+    from typing import Any, Dict
     from alphafold.data import pipeline
     from alphafold.data import pipeline_multimer
     from alphafold.data import templates
     from alphafold.data.tools import hhsearch
     from alphafold.data.tools import hmmsearch
-    from alphafold.model import config
     from alphafold.model import data
     from alphafold.model import model
     from alphafold.model import edit_config
+    from alphafold.common import confidence
+    from alphafold.common import protein
+    from alphafold.model import config
+    from alphafold.common import residue_constants
+
+    def _jnp_to_np(output: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively changes jax arrays to numpy arrays."""
+        for k, v in output.items():
+            if isinstance(v, dict):
+                output[k] = _jnp_to_np(v)
+            elif isinstance(v, jnp.ndarray):
+                output[k] = np.array(v)
+        return output
+
+    def _np_to_jnp(output: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively changes numpy arrays to jax arrays."""
+        for k, v in output.items():
+            if isinstance(v, dict):
+                output[k] = _np_to_jnp(v)
+            elif isinstance(v, np.ndarray):
+                output[k] = jnp.array(v)
+        return output
+
+    def _save_confidence_json_file(
+            plddt: np.ndarray, output_dir: str, model_name: str
+    ) -> None:
+        confidence_json = confidence.confidence_json(plddt)
+
+        # Save the confidence json.
+        confidence_json_output_path = os.path.join(
+            output_dir, f'confidence_{model_name}.json'
+        )
+        with open(confidence_json_output_path, 'w') as f:
+            f.write(confidence_json)
+
+    def _save_pae_json_file(
+            pae: np.ndarray, max_pae: float, output_dir: str, model_name: str
+    ) -> None:
+        """Check prediction result for PAE data and save to a JSON file if present.
+
+        Args:
+          pae: The n_res x n_res PAE array.
+          max_pae: The maximum possible PAE value.
+          output_dir: Directory to which files are saved.
+          model_name: Name of a model.
+        """
+        pae_json = confidence.pae_json(pae, max_pae)
+
+        # Save the PAE json.
+        pae_json_output_path = os.path.join(output_dir, f'pae_{model_name}.json')
+        with open(pae_json_output_path, 'w') as f:
+            f.write(pae_json)
 
     if run_multimer_system:
         template_searcher = hmmsearch.Hmmsearch(
@@ -273,6 +329,9 @@ def predict_one_structure(
         feature_dict = pickle.load(open(features_output_path, 'rb'))
 
     else:
+        msa_output_dir = os.path.join(output_dir, 'msas')
+        if not os.path.exists(msa_output_dir):
+            os.makedirs(msa_output_dir)
         feature_dict = data_pipeline.process(
             input_fasta_path=fasta_path,
             msa_output_dir=msa_output_dir)
@@ -314,121 +373,6 @@ def predict_one_structure(
 
     print(f"Total JAX model {model_name}  predict time (includes compilation time, see --benchmark): {t_diff}")
 
-    # Write prediction results
-
-    prediction_result_output_path = os.path.join(output_dir, 'prediction_results.pkl')
-    with open(prediction_result_output_path, 'wb') as f:
-        pickle.dump(prediction_result, f)
-
-    processed_feature_output_path = os.path.join(output_dir, 'processed_feature.pkl')
-    with open(processed_feature_output_path, 'wb') as f:
-        pickle.dump(processed_feature_dict, f)
-
-    return timings
-
-
-def _check_flag(flag_name: str,
-                other_flag_name: str,
-                should_be_set: bool):
-    if should_be_set != bool(FLAGS[flag_name].value):
-        verb = 'be' if should_be_set else 'not be'
-        raise ValueError(f'{flag_name} must {verb} set when running with '
-                         f'"--{other_flag_name}={FLAGS[other_flag_name].value}".')
-
-
-def _jnp_to_np(output: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively changes jax arrays to numpy arrays."""
-    for k, v in output.items():
-        if isinstance(v, dict):
-            output[k] = _jnp_to_np(v)
-        elif isinstance(v, jnp.ndarray):
-            output[k] = np.array(v)
-    return output
-
-
-def _np_to_jnp(output: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively changes numpy arrays to jax arrays."""
-    for k, v in output.items():
-        if isinstance(v, dict):
-            output[k] = _np_to_jnp(v)
-        elif isinstance(v, np.ndarray):
-            output[k] = jnp.array(v)
-    return output
-
-
-def _save_confidence_json_file(
-        plddt: np.ndarray, output_dir: str, model_name: str
-) -> None:
-    confidence_json = confidence.confidence_json(plddt)
-
-    # Save the confidence json.
-    confidence_json_output_path = os.path.join(
-        output_dir, f'confidence_{model_name}.json'
-    )
-    with open(confidence_json_output_path, 'w') as f:
-        f.write(confidence_json)
-
-
-def _load_confidence_json_file(
-        output_dir: str, model_name: str
-) -> None:
-    # Save the confidence json.
-    confidence_json_output_path = os.path.join(
-        output_dir, f'confidence_{model_name}.json'
-    )
-
-    with open(confidence_json_output_path, 'r') as f:
-        confidence_json = json.load(f)
-    return confidence_json
-
-
-def _save_pae_json_file(
-        pae: np.ndarray, max_pae: float, output_dir: str, model_name: str
-) -> None:
-    """Check prediction result for PAE data and save to a JSON file if present.
-
-    Args:
-      pae: The n_res x n_res PAE array.
-      max_pae: The maximum possible PAE value.
-      output_dir: Directory to which files are saved.
-      model_name: Name of a model.
-    """
-    pae_json = confidence.pae_json(pae, max_pae)
-
-    # Save the PAE json.
-    pae_json_output_path = os.path.join(output_dir, f'pae_{model_name}.json')
-    with open(pae_json_output_path, 'w') as f:
-        f.write(pae_json)
-
-
-def _load_pae_json_file(
-        output_dir: str, model_name: str
-) -> None:
-    """Check prediction result for PAE data and save to a JSON file if present.
-
-    Args:
-      output_dir: Directory to which files are saved.
-      model_name: Name of a model.
-    """
-
-    # Save the PAE json.
-    pae_json_output_path = os.path.join(output_dir, f'pae_{model_name}.json')
-    with open(pae_json_output_path, 'r') as f:
-        pae_json = json.load(f)
-    return pae_json
-
-
-def evaluate_results(model_name,
-                     output_dir,
-                     unrelaxed_proteins,
-                     ranking_confidences,
-                     unrelaxed_pdbs):
-    prediction_result_output_path = os.path.join(output_dir, 'prediction_results.pkl')
-    prediction_result = pickle.load(open(prediction_result_output_path, 'rb'))
-
-    processed_feature_output_path = os.path.join(output_dir, 'processed_feature.pkl')
-    processed_feature_dict = pickle.load(open(processed_feature_output_path, 'rb'))
-
     plddt = prediction_result['plddt']
     _save_confidence_json_file(plddt, output_dir, model_name)
     ranking_confidences[model_name] = prediction_result['ranking_confidence']
@@ -464,7 +408,7 @@ def evaluate_results(model_name,
     with open(unrelaxed_pdb_path, 'w') as f:
         f.write(unrelaxed_pdbs[model_name])
 
-    return unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label
+    return timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label
 
 
 def collate_dictionary(dic0, dic1):
@@ -475,19 +419,13 @@ def collate_dictionary(dic0, dic1):
 def predict_structure(
         fasta_path: str,
         fasta_name: str,
-        output_dir_base: str,
+        output_dir: str,
         run_multimer_system: bool,
         model_names: list,
         random_seed: int):
     """Predicts structure using AlphaFold for the given sequence."""
     logging.info('Predicting %s', fasta_name)
     timings = {}
-    output_dir = os.path.join(output_dir_base, fasta_name)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    msa_output_dir = os.path.join(output_dir, 'msas')
-    if not os.path.exists(msa_output_dir):
-        os.makedirs(msa_output_dir)
 
     # Get features. https://github.com/Zuricho/ParallelFold/blob/main/run_alphafold.py
     t_0 = time.time()
@@ -506,11 +444,11 @@ def predict_structure(
 
     num_models = len(model_names)
     with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
-                           container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
+                  container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
         for model_index, model_name in enumerate(model_names):
             print(timings, FLAGS.jackhmmer_binary_path)
             futures.append(ex.submit(predict_one_structure,
-                                     output_dir,
+                                     os.path.join("/mnt/output/", fasta_name),
                                      FLAGS.hmmsearch_binary_path,
                                      FLAGS.hmmbuild_binary_path,
                                      FLAGS.pdb_seqres_database_path,
@@ -542,16 +480,13 @@ def predict_structure(
                                      model_index + random_seed * num_models,
                                      run_multimer_system,
                                      fasta_path,
-                                     msa_output_dir,
-                                     timings))
+                                     timings,
+                                     ranking_confidences,
+                                     unrelaxed_pdbs,
+                                     unrelaxed_proteins))
 
-    for future in futures:
-        timings = future.result()
-        outputs.append((timings, *evaluate_results(model_name,
-                                                   output_dir,
-                                                   unrelaxed_proteins,
-                                                   ranking_confidences,
-                                                   unrelaxed_pdbs)))
+    for future in as_completed(futures):
+        outputs.append(future.result())
 
     outputs_ = list(zip(*outputs))
     outputs = outputs_[:4]
@@ -569,13 +504,12 @@ def predict_structure(
     # ranking_confidences has to be saved to resume MD
     ranking_output_path = os.path.join(output_dir, 'ranking_debug.json')
     with open(ranking_output_path, 'w') as f:
-        f.write(json.dumps(
-            {label: ranking_confidences}, indent=4))
+        f.write(json.dumps({label: ranking_confidences}, indent=4))
 
     return timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label
 
 
-def structure_ranker(output_dir_base: str,
+def structure_ranker(output_dir: str,
                      fasta_name: str,
                      models_to_relax: ModelsToRelax,
                      timings,
@@ -584,7 +518,6 @@ def structure_ranker(output_dir_base: str,
                      ranking_confidences: dict,
                      label: str,
                      use_amber: bool):
-    output_dir = os.path.join(output_dir_base, fasta_name)
 
     relaxed_pdbs = {}
     relax_metrics = {}
@@ -604,11 +537,11 @@ def structure_ranker(output_dir_base: str,
     futures = []
     outputs = []
     with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
-                           container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
+                  container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
         for model_name in to_relax:
             futures.append(ex.submit(run_one_openmm, model_name, relax_metrics, unrelaxed_proteins, timings))
 
-    for future in futures:
+    for future in as_completed(futures):
         outputs.append(future.result())
 
     outputs = list(zip(*outputs))
@@ -642,6 +575,7 @@ def structure_ranker(output_dir_base: str,
     timings_output_path = os.path.join(output_dir, 'timings.json')
     with open(timings_output_path, 'w') as f:
         f.write(json.dumps(timings, indent=4))
+
     if models_to_relax != ModelsToRelax.NONE:
         relax_metrics_path = os.path.join(output_dir, 'relax_metrics.json')
         with open(relax_metrics_path, 'w') as f:
@@ -653,13 +587,6 @@ def main(argv):
 
     total_time = {}
     t_setup_start = time.time()
-    if len(argv) > 1:
-        raise app.UsageError('Too many command-line arguments.')
-
-    for tool_name in ('jackhmmer', 'hhblits', 'hhsearch', 'hmmsearch', 'hmmbuild', 'kalign'):
-        if not FLAGS[f'{tool_name}_binary_path'].value:
-            raise ValueError(f'Could not find path to the "{tool_name}" binary. Make '
-                             'sure it is installed on your system.')
 
     use_small_bfd = FLAGS.db_preset == 'reduced_dbs'
     _check_flag('small_bfd_database_path', 'db_preset',
@@ -700,15 +627,18 @@ def main(argv):
         additional_timings = {}
         t_0 = time.time()
         fasta_name = fasta_names[i]
+
+        output_dir = os.path.join(FLAGS.output_dir, fasta_name)
+
         timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label = predict_structure(
             fasta_path=fasta_path,
             fasta_name=fasta_name,
-            output_dir_base=FLAGS.output_dir,
+            output_dir=output_dir,
             run_multimer_system=run_multimer_system,
             model_names=model_names,
             random_seed=random_seed)
 
-        structure_ranker(output_dir_base=FLAGS.output_dir,
+        structure_ranker(output_dir=output_dir,
                          fasta_name=fasta_name,
                          models_to_relax=FLAGS.models_to_relax,
                          timings=timings,
@@ -727,8 +657,6 @@ def main(argv):
 
         additional_timings.update(total_time)
         logging.info('\n\n Additional timings for %s: %s', fasta_name, additional_timings)
-
-        output_dir = os.path.join(FLAGS.output_dir, fasta_name)
 
         additional_timings_output_path = os.path.join(output_dir, 'additional_timings.json')
         with open(additional_timings_output_path, 'w') as f:

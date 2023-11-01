@@ -12,8 +12,6 @@ conda create env --name alphafold python=3.9
 conda activate alphafold
 
 pip install globus-compute-endpoint==2.2.0
-pip install globus-compute-sdk==2.2.0
-
 ```
 
 2. Create a globus-compute-endpint:
@@ -76,11 +74,11 @@ singularity pull docker://ritwik1998/alphafold-docker-image
 singularity exec \
 --nv \
 --bind /scratch/bblq/parthpatel7173/alphafold_files/globusComputeTesting/output/:/mnt/output alphafold-docker-image_latest.sif \
-python run_alphafold.py \
+python3 run_alphafold.py \
 --fasta_paths=/mnt/fasta_path_0/mchu.fasta \
 --max_template_date=2022-01-01 \
 --data_dir=/mnt/data_dir \
---output_dir=/mnt/output \
+--output_dir=./output \
 --use_gpu_relax=False \
 --perform_MD_only=True \
 --uniref90_database_path=/mnt/uniref90_database_path/uniref90.fasta \

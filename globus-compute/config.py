@@ -7,7 +7,7 @@ from globus_compute_endpoint.executors import HighThroughputExecutor
 user_opts = {
   'delta': {
     'worker_init': 'bash /u/ritwikd2/worker_init.sh',
-    'scheduler_options': '#SBATCH --account=bbmi-delta-gpu --mem=80g --gpus=2',
+    'scheduler_options': '#SBATCH --account=bbmi-delta-gpu --mem=100g --nodes=1 --gpus-per-node=4',
   }
 }
 
