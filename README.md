@@ -7,7 +7,7 @@ Run the alphafold model by setting up a globus-compute endpoint on the NCSA Delt
 1. Install globus-compute:
 
 ```shell
-conda create env --name alphafold python=3.9
+conda create env --name alphafold python=3.8
 
 conda activate alphafold
 
@@ -69,13 +69,13 @@ config = Config(
 4. Run Alphafold using the following command:
 
 ```shell
-python3.9 -m venv venv
+python3.8 -m venv venv
 
 source venv/bin/activate
 
 pip install globus-compute-sdk==2.2.0
 
-pip install git+https://github.com/ritwik-deshpande/alphafold.git
+pip install absl-py
 ```
 
 ```shell
@@ -84,8 +84,6 @@ python3 run_alphafold.py \
 --max_template_date=2022-01-01 \
 --data_dir=/mnt/data_dir \
 --output_dir=<local path where results will be stored> \
---use_gpu_relax=False \
---perform_MD_only=True \
 --uniref90_database_path=/mnt/uniref90_database_path/uniref90.fasta \
 --mgnify_database_path=/mnt/mgnify_database_path/mgy_clusters_2022_05.fa \
 --template_mmcif_dir=/mnt/template_mmcif_dir \

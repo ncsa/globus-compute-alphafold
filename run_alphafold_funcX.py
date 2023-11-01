@@ -6,13 +6,14 @@ import random
 import shutil
 import sys
 import time
+import functools
+import datetime
+
 from absl import app
 from absl import flags
 from absl import logging
-import functools
-import datetime
+
 from concurrent.futures import as_completed
-from alphafold.model import config
 from globus_compute_sdk import Executor
 
 logging.set_verbosity(logging.INFO)
@@ -24,17 +25,41 @@ class ModelsToRelax(enum.Enum):
     BEST = 1
     NONE = 2
 
+MODEL_PRESETS = {
+    'monomer': (
+        'model_1',
+        'model_2',
+        'model_3',
+        'model_4',
+        'model_5',
+    ),
+    'monomer_ptm': (
+        'model_1_ptm',
+        'model_2_ptm',
+        'model_3_ptm',
+        'model_4_ptm',
+        'model_5_ptm',
+    ),
+    'multimer': (
+        'model_1_multimer_v3',
+        'model_2_multimer_v3',
+        'model_3_multimer_v3',
+        'model_4_multimer_v3',
+        'model_5_multimer_v3',
+    ),
+}
+MODEL_PRESETS['monomer_casp14'] = MODEL_PRESETS['monomer']
 
-flags.DEFINE_list(
-    'fasta_paths', None, 'Paths to FASTA files, each containing a prediction '
+flags.DEFINE_list('fasta_paths', None, 'Paths to FASTA files, each containing a prediction '
                          'target that will be folded one after another. If a FASTA file contains '
                          'multiple sequences, then it will be folded as a multimer. Paths should be '
                          'separated by commas. All FASTA paths must have a unique basename as the '
                          'basename is used to name the output directories for each prediction.')
 
-flags.DEFINE_string('data_dir', None, 'Path to directory of supporting data.')
-flags.DEFINE_string('output_dir', None, 'Path to a directory that will '
-                                        'store the results.')
+flags.DEFINE_string('data_dir', None, 'Path to directory of supporting data.')\
+
+flags.DEFINE_string('output_dir', None, 'Path to a directory that will store the results.')
+
 flags.DEFINE_string('jackhmmer_binary_path', shutil.which('jackhmmer'),
                     'Path to the JackHMMER executable.')
 flags.DEFINE_string('hhblits_binary_path', shutil.which('hhblits'),
@@ -75,25 +100,30 @@ flags.DEFINE_enum('db_preset', 'full_dbs',
                   'Choose preset MSA database configuration - '
                   'smaller genetic database config (reduced_dbs) or '
                   'full genetic database config  (full_dbs)')
+
 flags.DEFINE_enum('model_preset', 'monomer',
                   ['monomer', 'monomer_casp14', 'monomer_ptm', 'multimer'],
                   'Choose preset model configuration - the monomer model, '
                   'the monomer model with extra ensembling, monomer model with '
                   'pTM head, or multimer model')
+
 flags.DEFINE_boolean('benchmark', False, 'Run multiple JAX model evaluations '
                                          'to obtain a timing that excludes the compilation time, '
                                          'which should be more indicative of the time required for '
                                          'inferencing many proteins.')
+
 flags.DEFINE_integer('random_seed', None, 'The random seed for the data '
                                           'pipeline. By default, this is randomly generated. Note '
                                           'that even if this is set, Alphafold may still not be '
                                           'deterministic, because processes like GPU inference are '
                                           'nondeterministic.')
+
 flags.DEFINE_integer('num_multimer_predictions_per_model', 5, 'How many '
                                                               'predictions (each with a different random seed) will be '
                                                               'generated per model. E.g. if this is 2 and there are 5 '
                                                               'models then there will be 10 predictions per input. '
                                                               'Note: this FLAG only applies if model_preset=multimer')
+
 flags.DEFINE_boolean('use_precomputed_msas', False, 'Whether to read MSAs that '
                                                     'have been written to disk instead of running the MSA '
                                                     'tools. The MSA files are looked up in the output '
@@ -101,6 +131,7 @@ flags.DEFINE_boolean('use_precomputed_msas', False, 'Whether to read MSAs that '
                                                     'runs that are to reuse the MSAs. WARNING: This will not '
                                                     'check if the sequence, database or configuration have '
                                                     'changed.')
+
 flags.DEFINE_enum_class('models_to_relax', ModelsToRelax.BEST, ModelsToRelax,
                         'The models to run the final relaxation step on. '
                         'If `all`, all models are relaxed, which may be time '
@@ -110,11 +141,13 @@ flags.DEFINE_enum_class('models_to_relax', ModelsToRelax.BEST, ModelsToRelax,
                         'distracting stereochemical violations but might help '
                         'in case you are having issues with the relaxation '
                         'stage.')
+
 flags.DEFINE_boolean('use_gpu_relax', None, 'Whether to relax on GPU. '
                                             'Relax on GPU can be much faster than CPU, so it is '
                                             'recommended to enable if possible. GPUs must be available'
                                             ' if this setting is enabled.')
 flags.DEFINE_boolean('perform_MD_only', None, 'Whether to use MD only..')
+
 flags.DEFINE_boolean('use_amber', None, 'Whether to use Amber as MD engine or CHARMM')
 
 # Colabfold
@@ -583,6 +616,7 @@ def structure_ranker(output_dir: str,
 
 
 def main(argv):
+
     logging.info("\n\n Alphafold Prediction Started")
 
     total_time = {}
@@ -609,7 +643,7 @@ def main(argv):
     if len(fasta_names) != len(set(fasta_names)):
         raise ValueError('All FASTA paths must have a unique basename.')
 
-    model_names = config.MODEL_PRESETS[FLAGS.model_preset]
+    model_names = MODEL_PRESETS[FLAGS.model_preset]
 
     random_seed = FLAGS.random_seed
     if random_seed is None:
@@ -691,7 +725,5 @@ if __name__ == '__main__':
         'template_mmcif_dir',
         'max_template_date',
         'obsolete_pdbs_path',
-        'use_gpu_relax',
-        'perform_MD_only'
     ])
     app.run(main)
