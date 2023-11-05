@@ -460,14 +460,6 @@ def predict_structure(
     logging.info('Predicting %s', fasta_name)
     timings = {}
 
-    # Get features. https://github.com/Zuricho/ParallelFold/blob/main/run_alphafold.py
-    t_0 = time.time()
-    end_time = time.time()
-
-    timings['features'] = end_time - t_0
-    timings['features_start_time'] = datetime.datetime.fromtimestamp(t_0).strftime("%H:%M:%S")
-    timings['features_end_time'] = datetime.datetime.fromtimestamp(end_time).strftime("%H:%M:%S")
-
     unrelaxed_proteins = {}
     ranking_confidences = {}
     unrelaxed_pdbs = {}
@@ -479,7 +471,6 @@ def predict_structure(
     with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
                   container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
         for model_index, model_name in enumerate(model_names):
-            print(timings, FLAGS.jackhmmer_binary_path)
             futures.append(ex.submit(predict_one_structure,
                                      os.path.join("/mnt/output/", fasta_name),
                                      FLAGS.hmmsearch_binary_path,
@@ -663,6 +654,9 @@ def main(argv):
         fasta_name = fasta_names[i]
 
         output_dir = os.path.join(FLAGS.output_dir, fasta_name)
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
         timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label = predict_structure(
             fasta_path=fasta_path,

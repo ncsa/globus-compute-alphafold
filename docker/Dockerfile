@@ -46,10 +46,15 @@ RUN conda install -qy conda==4.13.0 \
 
 
 RUN pip install git+https://github.com/ritwik-deshpande/alphafold.git
+RUN pip install --upgrade --no-cache-dir jax==0.3.25 jaxlib==0.3.25+cuda11.cudnn805 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 RUN pip install globus-compute-sdk==2.2.0
 RUN pip install globus-compute-endpoint==2.2.0
 
 RUN wget -q -P /opt/conda/lib/python3.8/site-packages/alphafold/common/ https://git.scicore.unibas.ch/schwede/openstructure/-/raw/7102c63615b64735c4941278d92b554ec94415f8/modules/mol/alg/src/stereo_chemical_props.txt
+
+ENV XLA_PYTHON_CLIENT_PREALLOCATE=false
+ENV XLA_PYTHON_CLIENT_MEM_FRACTION=.75
+ENV XLA_PYTHON_CLIENT_ALLOCATOR=platform
 
 # Add SETUID bit to the ldconfig binary so that non-root users can run it.
 RUN chmod u+s /sbin/ldconfig.real
