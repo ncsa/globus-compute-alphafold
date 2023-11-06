@@ -6,8 +6,8 @@ from globus_compute_endpoint.executors import HighThroughputExecutor
 
 user_opts = {
   'delta': {
-    'worker_init': 'bash /u/ritwikd2/worker_init.sh',
-    'scheduler_options': '#SBATCH --account=bbmi-delta-gpu --mem=100g --nodes=1 --gpus-per-node=4',
+    'worker_init': 'module purge; module load cue-login-env/1.0 gcc/11.2.0 ucx/1.11.2 openmpi/4.1.2 cuda/11.6.1 modtree/gpu default',
+    'scheduler_options': '#SBATCH --account=bbmi-delta-gpu --mem=100g --nodes=2 --gpus-per-node=4 --gpus-per-task=4 --ntasks-per-node=1 --exclusive',
   }
 }
 
