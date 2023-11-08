@@ -18,6 +18,8 @@ from globus_compute_sdk import Executor
 
 logging.set_verbosity(logging.INFO)
 
+ENDPOINT_ID = "ec50d329-23e2-48e4-bbd0-ad56e22a3034"
+CONTAINER_ID = "3fb0c84f-c8a9-461f-9d9a-faa1530b39a5"
 
 @enum.unique
 class ModelsToRelax(enum.Enum):
@@ -468,8 +470,8 @@ def predict_structure(
     futures = []
 
     num_models = len(model_names)
-    with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
-                  container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
+    with Executor(endpoint_id=ENDPOINT_ID,
+                  container_id=CONTAINER_ID) as ex:
         for model_index, model_name in enumerate(model_names):
             futures.append(ex.submit(predict_one_structure,
                                      os.path.join("/mnt/output/", fasta_name),
@@ -560,8 +562,8 @@ def structure_ranker(output_dir: str,
 
     futures = []
     outputs = []
-    with Executor(endpoint_id="1b95c82a-d19c-42f1-a272-242402deee51",
-                  container_id="4b81cadd-bc1e-46f1-b95e-e93e547e04c3") as ex:
+    with Executor(endpoint_id=ENDPOINT_ID,
+                  container_id=CONTAINER_ID) as ex:
         for model_name in to_relax:
             futures.append(ex.submit(run_one_openmm, model_name, relax_metrics, unrelaxed_proteins, timings))
 
