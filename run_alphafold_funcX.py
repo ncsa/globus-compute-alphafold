@@ -18,7 +18,7 @@ from globus_compute_sdk import Executor
 
 logging.set_verbosity(logging.INFO)
 
-ENDPOINT_ID = "ec50d329-23e2-48e4-bbd0-ad56e22a3034"
+ENDPOINT_ID = "070e6cc9-60a9-44ec-be40-e54d81a1ed69"
 CONTAINER_ID = "3fb0c84f-c8a9-461f-9d9a-faa1530b39a5"
 
 @enum.unique
