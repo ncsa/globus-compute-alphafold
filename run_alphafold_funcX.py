@@ -58,7 +58,7 @@ flags.DEFINE_list('fasta_paths', None, 'Paths to FASTA files, each containing a 
                          'separated by commas. All FASTA paths must have a unique basename as the '
                          'basename is used to name the output directories for each prediction.')
 
-flags.DEFINE_string('data_dir', None, 'Path to directory of supporting data.')\
+flags.DEFINE_string('data_dir', '/mnt/data_dir', 'Path to directory of supporting data.')\
 
 flags.DEFINE_string('output_dir', None, 'Path to a directory that will store the results.')
 
@@ -74,27 +74,27 @@ flags.DEFINE_string('hmmbuild_binary_path', shutil.which('hmmbuild'),
                     'Path to the hmmbuild executable.')
 flags.DEFINE_string('kalign_binary_path', shutil.which('kalign'),
                     'Path to the Kalign executable.')
-flags.DEFINE_string('uniref90_database_path', None, 'Path to the Uniref90 '
+flags.DEFINE_string('uniref90_database_path', '/mnt/uniref90_database_path/uniref90.fasta', 'Path to the Uniref90 '
                                                     'database for use by JackHMMER.')
-flags.DEFINE_string('mgnify_database_path', None, 'Path to the MGnify '
+flags.DEFINE_string('mgnify_database_path', '/mnt/mgnify_database_path/mgy_clusters_2022_05.fa', 'Path to the MGnify '
                                                   'database for use by JackHMMER.')
-flags.DEFINE_string('bfd_database_path', None, 'Path to the BFD '
+flags.DEFINE_string('bfd_database_path', '/mnt/bfd_database_path/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt', 'Path to the BFD '
                                                'database for use by HHblits.')
 flags.DEFINE_string('small_bfd_database_path', None, 'Path to the small '
                                                      'version of BFD used with the "reduced_dbs" preset.')
-flags.DEFINE_string('uniref30_database_path', None, 'Path to the UniRef30 '
+flags.DEFINE_string('uniref30_database_path', '/mnt/uniref30_database_path/UniRef30_2021_03', 'Path to the UniRef30 '
                                                     'database for use by HHblits.')
 flags.DEFINE_string('uniprot_database_path', None, 'Path to the Uniprot '
                                                    'database for use by JackHMMer.')
-flags.DEFINE_string('pdb70_database_path', None, 'Path to the PDB70 '
+flags.DEFINE_string('pdb70_database_path', '/mnt/pdb70_database_path/pdb70', 'Path to the PDB70 '
                                                  'database for use by HHsearch.')
 flags.DEFINE_string('pdb_seqres_database_path', None, 'Path to the PDB '
                                                       'seqres database for use by hmmsearch.')
-flags.DEFINE_string('template_mmcif_dir', None, 'Path to a directory with '
+flags.DEFINE_string('template_mmcif_dir', '/mnt/template_mmcif_dir', 'Path to a directory with '
                                                 'template mmCIF structures, each named <pdb_id>.cif')
-flags.DEFINE_string('max_template_date', None, 'Maximum template release date '
+flags.DEFINE_string('max_template_date', '2022-01-01', 'Maximum template release date '
                                                'to consider. Important if folding historical test sets.')
-flags.DEFINE_string('obsolete_pdbs_path', None, 'Path to file containing a '
+flags.DEFINE_string('obsolete_pdbs_path', '/mnt/obsolete_pdbs_path/obsolete.dat', 'Path to file containing a '
                                                 'mapping from obsolete PDB IDs to the PDB IDs of their '
                                                 'replacements.')
 flags.DEFINE_enum('db_preset', 'full_dbs',
@@ -714,12 +714,6 @@ def main(argv):
 if __name__ == '__main__':
     flags.mark_flags_as_required([
         'fasta_paths',
-        'output_dir',
-        'data_dir',
-        'uniref90_database_path',
-        'mgnify_database_path',
-        'template_mmcif_dir',
-        'max_template_date',
-        'obsolete_pdbs_path',
+        'output_dir'
     ])
     app.run(main)
