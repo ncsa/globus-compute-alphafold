@@ -79,18 +79,7 @@ pip install git+https://github.com/ritwik-deshpande/alphafold.git
 ```
 
 ```shell
-python3 run_alphafold.py \
---fasta_paths=/mnt/fasta_path_0/mchu.fasta \
---max_template_date=2022-01-01 \
---data_dir=/mnt/data_dir \
---output_dir=<local path where results will be stored> \
---uniref90_database_path=/mnt/uniref90_database_path/uniref90.fasta \
---mgnify_database_path=/mnt/mgnify_database_path/mgy_clusters_2022_05.fa \
---template_mmcif_dir=/mnt/template_mmcif_dir \
---obsolete_pdbs_path=/mnt/obsolete_pdbs_path/obsolete.dat \
---bfd_database_path=/mnt/bfd_database_path/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt \
---uniref30_database_path=/mnt/uniref30_database_path/UniRef30_2021_03 \
---pdb70_database_path=/mnt/pdb70_database_path/pdb70
+python3 run_alphafold_funcX.py --fasta_paths=/mnt/fasta_path_0/mchu.fasta  --output_dir=<local path where results will be stored> 
 ```
 
 
