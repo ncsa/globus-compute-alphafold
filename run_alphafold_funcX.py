@@ -3,7 +3,6 @@ import json
 import os
 import pathlib
 import random
-import shutil
 import sys
 import time
 import functools
@@ -26,6 +25,7 @@ class ModelsToRelax(enum.Enum):
     ALL = 0
     BEST = 1
     NONE = 2
+
 
 MODEL_PRESETS = {
     'monomer': (
@@ -53,50 +53,40 @@ MODEL_PRESETS = {
 MODEL_PRESETS['monomer_casp14'] = MODEL_PRESETS['monomer']
 
 flags.DEFINE_list('fasta_paths', None, 'Paths to FASTA files, each containing a prediction '
-                         'target that will be folded one after another. If a FASTA file contains '
-                         'multiple sequences, then it will be folded as a multimer. Paths should be '
-                         'separated by commas. All FASTA paths must have a unique basename as the '
-                         'basename is used to name the output directories for each prediction.')
+                                       'target that will be folded one after another. If a FASTA file contains '
+                                       'multiple sequences, then it will be folded as a multimer. Paths should be '
+                                       'separated by commas. All FASTA paths must have a unique basename as the '
+                                       'basename is used to name the output directories for each prediction.')
 
-flags.DEFINE_string('data_dir', '/mnt/data_dir', 'Path to directory of supporting data.')\
+flags.DEFINE_string('data_dir', '/mnt/data_dir', 'Path to directory of supporting data.')
 
 flags.DEFINE_string('output_dir', None, 'Path to a directory that will store the results.')
 
-flags.DEFINE_string('jackhmmer_binary_path', shutil.which('jackhmmer'),
-                    'Path to the JackHMMER executable.')
-flags.DEFINE_string('hhblits_binary_path', shutil.which('hhblits'),
-                    'Path to the HHblits executable.')
-flags.DEFINE_string('hhsearch_binary_path', shutil.which('hhsearch'),
-                    'Path to the HHsearch executable.')
-flags.DEFINE_string('hmmsearch_binary_path', shutil.which('hmmsearch'),
-                    'Path to the hmmsearch executable.')
-flags.DEFINE_string('hmmbuild_binary_path', shutil.which('hmmbuild'),
-                    'Path to the hmmbuild executable.')
-flags.DEFINE_string('kalign_binary_path', shutil.which('kalign'),
-                    'Path to the Kalign executable.')
 flags.DEFINE_string('uniref90_database_path', '/mnt/uniref90_database_path/uniref90.fasta', 'Path to the Uniref90 '
-                                                    'database for use by JackHMMER.')
+                                                                                            'database for use by JackHMMER.')
 flags.DEFINE_string('mgnify_database_path', '/mnt/mgnify_database_path/mgy_clusters_2022_05.fa', 'Path to the MGnify '
-                                                  'database for use by JackHMMER.')
-flags.DEFINE_string('bfd_database_path', '/mnt/bfd_database_path/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt', 'Path to the BFD '
-                                               'database for use by HHblits.')
+                                                                                                 'database for use by JackHMMER.')
+flags.DEFINE_string('bfd_database_path',
+                    '/mnt/bfd_database_path/bfd_metaclust_clu_complete_id30_c90_final_seq.sorted_opt',
+                    'Path to the BFD '
+                    'database for use by HHblits.')
 flags.DEFINE_string('small_bfd_database_path', None, 'Path to the small '
                                                      'version of BFD used with the "reduced_dbs" preset.')
 flags.DEFINE_string('uniref30_database_path', '/mnt/uniref30_database_path/UniRef30_2021_03', 'Path to the UniRef30 '
-                                                    'database for use by HHblits.')
+                                                                                              'database for use by HHblits.')
 flags.DEFINE_string('uniprot_database_path', None, 'Path to the Uniprot '
                                                    'database for use by JackHMMer.')
 flags.DEFINE_string('pdb70_database_path', '/mnt/pdb70_database_path/pdb70', 'Path to the PDB70 '
-                                                 'database for use by HHsearch.')
+                                                                             'database for use by HHsearch.')
 flags.DEFINE_string('pdb_seqres_database_path', None, 'Path to the PDB '
                                                       'seqres database for use by hmmsearch.')
 flags.DEFINE_string('template_mmcif_dir', '/mnt/template_mmcif_dir', 'Path to a directory with '
-                                                'template mmCIF structures, each named <pdb_id>.cif')
+                                                                     'template mmCIF structures, each named <pdb_id>.cif')
 flags.DEFINE_string('max_template_date', '2022-01-01', 'Maximum template release date '
-                                               'to consider. Important if folding historical test sets.')
+                                                       'to consider. Important if folding historical test sets.')
 flags.DEFINE_string('obsolete_pdbs_path', '/mnt/obsolete_pdbs_path/obsolete.dat', 'Path to file containing a '
-                                                'mapping from obsolete PDB IDs to the PDB IDs of their '
-                                                'replacements.')
+                                                                                  'mapping from obsolete PDB IDs to the PDB IDs of their '
+                                                                                  'replacements.')
 flags.DEFINE_enum('db_preset', 'full_dbs',
                   ['full_dbs', 'reduced_dbs'],
                   'Choose preset MSA database configuration - '
@@ -205,19 +195,13 @@ def run_one_openmm(model_name, relax_metrics, unrelaxed_proteins, timings):
     return relaxed_pdb_str, relax_metrics, timings
 
 
-def predict_one_structure(
+def create_features_dict(
         output_dir,
-        hmmsearch_binary_path,
-        hmmbuild_binary_path,
         pdb_seqres_database_path,
         template_mmcif_dir,
         max_template_date,
-        kalign_binary_path,
         obsolete_pdbs_path,
-        hhsearch_binary_path,
         pdb70_database_path,
-        jackhmmer_binary_path,
-        hhblits_binary_path,
         uniref90_database_path,
         mgnify_database_path,
         bfd_database_path,
@@ -225,6 +209,92 @@ def predict_one_structure(
         small_bfd_database_path,
         use_precomputed_msas,
         uniprot_database_path,
+        run_multimer_system,
+        fasta_path,
+):
+    import os
+    import pickle
+    import shutil
+    from alphafold.data import pipeline
+    from alphafold.data import pipeline_multimer
+    from alphafold.data import templates
+    from alphafold.data.tools import hhsearch
+    from alphafold.data.tools import hmmsearch
+
+    jackhmmer_binary_path = shutil.which('jackhmmer')
+    hhblits_binary_path = shutil.which('hhblits')
+    hhsearch_binary_path = shutil.which('hhsearch')
+    hmmsearch_binary_path = shutil.which('hmmsearch')
+    hmmbuild_binary_path = shutil.which('hmmbuild')
+    kalign_binary_path = shutil.which('kalign')
+
+    if run_multimer_system:
+        template_searcher = hmmsearch.Hmmsearch(
+            binary_path=hmmsearch_binary_path,
+            hmmbuild_binary_path=hmmbuild_binary_path,
+            database_path=pdb_seqres_database_path)
+
+        template_featurizer = templates.HmmsearchHitFeaturizer(
+            mmcif_dir=template_mmcif_dir,
+            max_template_date=max_template_date,
+            max_hits=20,
+            kalign_binary_path=kalign_binary_path,
+            release_dates_path=None,
+            obsolete_pdbs_path=obsolete_pdbs_path)
+    else:
+        template_searcher = hhsearch.HHSearch(
+            binary_path=hhsearch_binary_path,
+            databases=[pdb70_database_path])
+        template_featurizer = templates.HhsearchHitFeaturizer(
+            mmcif_dir=template_mmcif_dir,
+            max_template_date=max_template_date,
+            max_hits=20,
+            kalign_binary_path=kalign_binary_path,
+            release_dates_path=None,
+            obsolete_pdbs_path=obsolete_pdbs_path)
+
+    monomer_data_pipeline = pipeline.DataPipeline(
+        jackhmmer_binary_path=jackhmmer_binary_path,
+        hhblits_binary_path=hhblits_binary_path,
+        uniref90_database_path=uniref90_database_path,
+        mgnify_database_path=mgnify_database_path,
+        bfd_database_path=bfd_database_path,
+        uniref30_database_path=uniref30_database_path,
+        small_bfd_database_path=small_bfd_database_path,
+        template_searcher=template_searcher,
+        template_featurizer=template_featurizer,
+        use_small_bfd=False,
+        use_precomputed_msas=use_precomputed_msas)
+
+    if run_multimer_system:
+        data_pipeline = pipeline_multimer.DataPipeline(
+            monomer_data_pipeline=monomer_data_pipeline,
+            jackhmmer_binary_path=jackhmmer_binary_path,
+            uniprot_database_path=uniprot_database_path,
+            use_precomputed_msas=use_precomputed_msas)
+    else:
+        data_pipeline = monomer_data_pipeline
+
+    features_output_path = os.path.join(output_dir, 'features.pkl')
+
+
+    if not os.path.exists(features_output_path):
+        msa_output_dir = os.path.join(output_dir, 'msas')
+        if not os.path.exists(msa_output_dir):
+            os.makedirs(msa_output_dir)
+        feature_dict = data_pipeline.process(
+            input_fasta_path=fasta_path,
+            msa_output_dir=msa_output_dir)
+
+        with open(features_output_path, 'wb') as f:
+            pickle.dump(feature_dict, f, protocol=4)
+
+        return "Created new feature_dict file"
+    else:
+        return "feature_dict file already present"
+
+def predict_one_structure(
+        output_dir,
         num_recycles,
         recycle_early_stop_tolerance,
         num_ensemble,
@@ -236,8 +306,6 @@ def predict_one_structure(
         data_dir,
         model_name,
         model_random_seed,
-        run_multimer_system,
-        fasta_path,
         timings,
         ranking_confidences,
         unrelaxed_pdbs,
@@ -249,11 +317,6 @@ def predict_one_structure(
     import jax.numpy as jnp
     import numpy as np
     from typing import Any, Dict
-    from alphafold.data import pipeline
-    from alphafold.data import pipeline_multimer
-    from alphafold.data import templates
-    from alphafold.data.tools import hhsearch
-    from alphafold.data.tools import hmmsearch
     from alphafold.model import data
     from alphafold.model import model
     from alphafold.model import edit_config
@@ -310,66 +373,10 @@ def predict_one_structure(
         with open(pae_json_output_path, 'w') as f:
             f.write(pae_json)
 
-    if run_multimer_system:
-        template_searcher = hmmsearch.Hmmsearch(
-            binary_path=hmmsearch_binary_path,
-            hmmbuild_binary_path=hmmbuild_binary_path,
-            database_path=pdb_seqres_database_path)
-
-        template_featurizer = templates.HmmsearchHitFeaturizer(
-            mmcif_dir=template_mmcif_dir,
-            max_template_date=max_template_date,
-            max_hits=20,
-            kalign_binary_path=kalign_binary_path,
-            release_dates_path=None,
-            obsolete_pdbs_path=obsolete_pdbs_path)
-    else:
-        template_searcher = hhsearch.HHSearch(
-            binary_path=hhsearch_binary_path,
-            databases=[pdb70_database_path])
-        template_featurizer = templates.HhsearchHitFeaturizer(
-            mmcif_dir=template_mmcif_dir,
-            max_template_date=max_template_date,
-            max_hits=20,
-            kalign_binary_path=kalign_binary_path,
-            release_dates_path=None,
-            obsolete_pdbs_path=obsolete_pdbs_path)
-
-    monomer_data_pipeline = pipeline.DataPipeline(
-        jackhmmer_binary_path=jackhmmer_binary_path,
-        hhblits_binary_path=hhblits_binary_path,
-        uniref90_database_path=uniref90_database_path,
-        mgnify_database_path=mgnify_database_path,
-        bfd_database_path=bfd_database_path,
-        uniref30_database_path=uniref30_database_path,
-        small_bfd_database_path=small_bfd_database_path,
-        template_searcher=template_searcher,
-        template_featurizer=template_featurizer,
-        use_small_bfd=False,
-        use_precomputed_msas=use_precomputed_msas)
-
-    if run_multimer_system:
-        data_pipeline = pipeline_multimer.DataPipeline(
-            monomer_data_pipeline=monomer_data_pipeline,
-            jackhmmer_binary_path=jackhmmer_binary_path,
-            uniprot_database_path=uniprot_database_path,
-            use_precomputed_msas=use_precomputed_msas)
-    else:
-        data_pipeline = monomer_data_pipeline
-
     print("Data pipeline process started")
     features_output_path = os.path.join(output_dir, 'features.pkl')
+    feature_dict = pickle.load(open(features_output_path, 'rb'))
 
-    if os.path.exists(features_output_path):
-        feature_dict = pickle.load(open(features_output_path, 'rb'))
-
-    else:
-        msa_output_dir = os.path.join(output_dir, 'msas')
-        if not os.path.exists(msa_output_dir):
-            os.makedirs(msa_output_dir)
-        feature_dict = data_pipeline.process(
-            input_fasta_path=fasta_path,
-            msa_output_dir=msa_output_dir)
 
     print(f"Running model {model_name}")
     t_0 = time.time()
@@ -455,7 +462,6 @@ def predict_structure(
         fasta_path: str,
         fasta_name: str,
         output_dir: str,
-        run_multimer_system: bool,
         model_names: list,
         random_seed: int):
     """Predicts structure using AlphaFold for the given sequence."""
@@ -475,24 +481,6 @@ def predict_structure(
         for model_index, model_name in enumerate(model_names):
             futures.append(ex.submit(predict_one_structure,
                                      os.path.join("/mnt/output/", fasta_name),
-                                     FLAGS.hmmsearch_binary_path,
-                                     FLAGS.hmmbuild_binary_path,
-                                     FLAGS.pdb_seqres_database_path,
-                                     FLAGS.template_mmcif_dir,
-                                     FLAGS.max_template_date,
-                                     FLAGS.kalign_binary_path,
-                                     FLAGS.obsolete_pdbs_path,
-                                     FLAGS.hhsearch_binary_path,
-                                     FLAGS.pdb70_database_path,
-                                     FLAGS.jackhmmer_binary_path,
-                                     FLAGS.hhblits_binary_path,
-                                     FLAGS.uniref90_database_path,
-                                     FLAGS.mgnify_database_path,
-                                     FLAGS.bfd_database_path,
-                                     FLAGS.uniref30_database_path,
-                                     FLAGS.small_bfd_database_path,
-                                     FLAGS.use_precomputed_msas,
-                                     FLAGS.uniprot_database_path,
                                      FLAGS.num_recycles,
                                      FLAGS.recycle_early_stop_tolerance,
                                      FLAGS.num_ensemble,
@@ -504,8 +492,6 @@ def predict_structure(
                                      FLAGS.data_dir,
                                      model_name,
                                      model_index + random_seed * num_models,
-                                     run_multimer_system,
-                                     fasta_path,
                                      timings,
                                      ranking_confidences,
                                      unrelaxed_pdbs,
@@ -544,7 +530,6 @@ def structure_ranker(output_dir: str,
                      ranking_confidences: dict,
                      label: str,
                      use_amber: bool):
-
     relaxed_pdbs = {}
     relax_metrics = {}
     # Rank by model confidence.
@@ -609,7 +594,6 @@ def structure_ranker(output_dir: str,
 
 
 def main(argv):
-
     logging.info("\n\n Alphafold Prediction Started")
 
     total_time = {}
@@ -660,11 +644,32 @@ def main(argv):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
+        # Check is features dict is present for those proteins, else creates the dictionary
+        with Executor(endpoint_id=ENDPOINT_ID,
+                      container_id=CONTAINER_ID) as ex:
+            fut = ex.submit(create_features_dict,
+                            os.path.join("/mnt/output/", fasta_name),
+                            FLAGS.pdb_seqres_database_path,
+                            FLAGS.template_mmcif_dir,
+                            FLAGS.max_template_date,
+                            FLAGS.obsolete_pdbs_path,
+                            FLAGS.pdb70_database_path,
+                            FLAGS.uniref90_database_path,
+                            FLAGS.mgnify_database_path,
+                            FLAGS.bfd_database_path,
+                            FLAGS.uniref30_database_path,
+                            FLAGS.small_bfd_database_path,
+                            FLAGS.use_precomputed_msas,
+                            FLAGS.uniprot_database_path,
+                            run_multimer_system,
+                            fasta_path)
+
+        print("Return status of feature dict creation ", fut.result())
+
         timings, unrelaxed_proteins, unrelaxed_pdbs, ranking_confidences, label = predict_structure(
             fasta_path=fasta_path,
             fasta_name=fasta_name,
             output_dir=output_dir,
-            run_multimer_system=run_multimer_system,
             model_names=model_names,
             random_seed=random_seed)
 
