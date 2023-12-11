@@ -29,7 +29,7 @@ config = Config(
         init_blocks=0,
         min_blocks=0,
         max_blocks=1,
-        walltime='00:30:00'
+        walltime='00:60:00'
       ),
     )
   ],

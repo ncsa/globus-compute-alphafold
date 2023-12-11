@@ -65,7 +65,6 @@ config = Config(
 ```
 
 
-
 4. Run Alphafold using the following command:
 
 ```shell
@@ -78,6 +77,26 @@ pip install globus-compute-sdk==2.2.0
 pip install git+https://github.com/ritwik-deshpande/alphafold.git
 ```
 
+
+5. Build and register docker image as singularity container
+
+```shell
+docker build --platform linux/x86_64 -t <docker-hub-acct>/alphafold-docker-image -f docker/Dockerfile
+
+docker push <docker-hub-acct>/alphafold-docker-image
+
+# Login into delta node and obtain sif file
+singularity pull docker://<docker-hub-acct>/alphafold-docker-image
+
+#Copy path of this file path (singularity image file or .sif file)  and update it in the code for register_image.py
+
+#Logout and in the repo run the following code
+
+python3 globus-compute/register_image.py
+```
+
+
+6. Run the following script to obtain alphafold predictions
 ```shell
 python3 run_alphafold_funcX.py --fasta_paths=/mnt/fasta_path_0/mchu.fasta  --output_dir=<local path where results will be stored> 
 ```
